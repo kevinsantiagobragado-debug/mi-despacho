@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Despacho IA JBG</title>
+<style>
+    * { margin:0; padding:0; box-sizing:border-box; font-family:'Segoe UI', sans-serif; }
+  body { background:#0f1115; color:white; display:flex; flex-direction:column; height:100vh; }
+  header { background:#111827; padding:20px; text-align:center; border-bottom:2px solid #c9a227; }
+  header h1 { font-size:24px; letter-spacing:3px; }
+  header h1 span { color:#c9a227; }
+  header p { font-size:12px; color:#9ca3af; margin-top:5px; }
+  #chat { flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:12px; max-width:800px; width:100%; margin:0 auto; }
+  .msg { max-width:80%; padding:12px 16px; border-radius:18px; line-height:1.5; font-size:15px; white-space:pre-wrap; }
+  .user { background:#c9a227; color:black; align-self:flex-end; border-bottom-right-radius:4px; }
+  .bot { background:#1f2937; align-self:flex-start; border-bottom-left-radius:4px; }
+  #form { display:flex; gap:10px; padding:15px; max-width:800px; width:100%; margin:0 auto; }
+  input { flex:1; padding:14px; border-radius:25px; border:none; outline:none; background:#1f2937; color:white; font-size:15px; }
+  button { padding:14px 22px; border-radius:25px; border:none; background:#c9a227; font-weight:bold; cursor:pointer; }
+</style>
+</head>
+<body>
+<header>
+  <h1>DESPACHO <span>IA JBG</span></h1>
+  <p>Asistente Inteligente • Atención 24/7</p>
+</header>
+
+<div id="chat">
+  <div class="msg bot">Hola, soy Despacho IA JBG. ¿En qué puedo ayudarte hoy?</div>
+</div>
+
+<form id="form">
+  <input id="input" placeholder="Escribe tu mensaje..." autocomplete="off" required>
+  <button type="submit">Enviar</button>
+</form>
+
+<script>
+  const form = document.getElementById('form');
+  const input = document.getElementById('input');
+  const chat = document.getElementById('chat');
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const texto = input.value;
+    input.value = '';
+    chat.innerHTML += `<div class="msg user">${texto}</div>`;
+    chat.scrollTop = chat.scrollHeight;
+
+    // Aquí se conecta con la IA (el archivo app.py)
+    const res = await fetch('/chat', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({message: texto})
+    });
+    const data = await res.json();
+    chat.innerHTML += `<div class="msg bot">${data.respuesta}</div>`;
+    chat.scrollTop = chat.scrollHeight;
+  });
+
+asistente_dof/
+│
+├── app.py
+├── requirements.txt
+│
+├── templates/
+│   └── index.html
+│
+└── static/
+    ├── style.css
+    └── script.js
+
+from flask import Flask, render_template, request, jsonify
+import requests
+from datetime import datetime, timedelta
+import re
+import unicodedata
+
+app = Flask(__name__)
+
+DOF_API = "https://sidof.segob.gob.mx/dof/sidof"
+
+def limpiar(texto):
+    texto = str(texto or "").lower()
+    texto = unicodedata.normalize("NFD", texto)
+    texto = "".join(
+        c for c in texto
+        if unicodedata.category(c) != "Mn"
+    )
+    return texto
+
+def buscar_dof(pregunta):
+    resultados = []
+    palabras = [
+        p for p in limpiar(pregunta).split()
+        if len(p) > 2
+    ]
+
+    # Consultar los últimos 7 días
+    for dias in range(7):
+        fecha = datetime.now() - timedelta(days=dias)
+        fecha_api = fecha.strftime("%d-%m-%Y")
+
+        try:
+            url = f"{DOF_API}/notas/{fecha_api}"
+
+            r = requests.get(
+                url,
+                timeout=15
+            )
+            r.raise_for_status()
+            datos = r.json()
+
+            grupos = [
+                "NotasMatutinas",
+                "NotasVespertinas",
+                "NotasExtraordinarias"
+            ]
+
+            for grupo in grupos:
+                for nota in datos.get(grupo, []):
+                    titulo = nota.get("titulo", "")
+                    organismo = nota.get(
+                        "nombreCodOrgaDos", ""
+                    )
+
+                    texto = limpiar(
+                        titulo + " " + organismo
+                    )
+
+                    coincidencias = sum(
+                        1 for p in palabras if p in texto
+                    )
+
+                    if coincidencias > 0:
+                        resultados.append({
+                            "titulo": titulo or "Publicación del DOF",
+                            "fecha": nota.get("fecha", fecha_api),
+                            "codigo": nota.get("codNota"),
+                            "organismo": organismo,
+                            "coincidencias": coincidencias
+                        })
+
+        except requests.RequestException:
+            continue
+
+        except (ValueError, TypeError):
+            continue
+
+    resultados.sort(
+        key=lambda x: x["coincidencias"],
+        reverse=True
+    )
+
+    return resultados[:10]
+
+
+@app.route("/")
+def inicio():
+    return render_template("index.html")
+
+
+@app.route("/preguntar", methods=["POST"])
+def preguntar():
+    datos = request.get_json(silent=True) or {}
+    pregunta = datos.get("pregunta", "").strip()
+
+    if not pregunta:
+        return jsonify({
+            "respuesta": "Escribe una pregunta para comenzar.",
+            "resultados": []
+        }), 400
+
+    if len(pregunta) > 300:
+        return jsonify({
+            "respuesta": "La pregunta es demasiado larga.",
+            "resultados": []
+        }), 400
+
+    resultados = buscar_dof(pregunta)
+
+    if resultados:
+        respuesta = (
+            "Encontré publicaciones del Diario Oficial "
+            "de la Federación relacionadas con tu consulta. "
+            "Revisa los títulos y fechas para identificar "
+            "los documentos pertinentes."
+        )
+    else:
+        respuesta = (
+            "No encontré coincidencias en las publicaciones "
+            "consultadas de los últimos 7 días. "
+            "Prueba con otras palabras o consulta el "
+            "buscador oficial del DOF."
+        )
+
+    return jsonify({
+        "respuesta": respuesta,
+        "resultados": resultados,
+        "buscador_oficial": "https://sidof.segob.gob.mx/busquedaAvanzada"
+    })
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
+
+
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: #eef2f5;
+    color: #222;
+}
+
+.contenedor {
+    max-width: 750px;
+    margin: 40px auto;
+    padding: 25px;
+    background: white;
+    border-radius: 15px;
+    box-shadow: 0 4px 15px #0002;
+}
+
+h1 {
+    text-align: center;
+    color: #174b35;
+}
+
+.chat {
+    height: 400px;
+    overflow-y: auto;
+    border: 1px solid #ddd;
+    padding: 15px;
+    border-radius: 10px;
+    margin: 20px 0;
+}
+
+.mensaje {
+    padding: 12px;
+    margin: 10px 0;
+    border-radius: 10px;
+    line-height: 1.5;
+}
+
+.bot {
+    background: #e6f2eb;
+}
+
+.usuario {
+    background: #dce9fa;
+    text-align: right;
+}
+
+.entrada {
+    display: flex;
+    gap: 10px;
+}
+
+input {
+    flex: 1;
+    padding: 14px;
+    border: 1px solid #bbb;
+    border-radius: 8px;
+    font-size: 16px;
+    min-width: 0;
+}
+
+button {
+    background: #174b35;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 12px 20px;
+    cursor: pointer;
+}
+
+button:hover {
+    background: #236a49;
+}
+
+.aviso {
+    font-size: 12px;
+    color: #666;
+}
+
+.resultado {
+    border-top: 1px solid #ccc;
+    margin-top: 12px;
+    padding-top: 10px;
+}
+
+a {
+    color: #175a9c;
+}
+
+async function enviarPregunta() {
+
+    const input = document.getElementById("pregunta");
+    const chat = document.getElementById("chat");
+    const boton = document.getElementById("enviar");
+
+    const pregunta = input.value.trim();
+
+    if (!pregunta) {
+        alert("Escribe una pregunta.");
+        return;
+    }
+
+    const usuario = document.createElement("div");
+    usuario.className = "mensaje usuario";
+    usuario.textContent = pregunta;
+    chat.appendChild(usuario);
+
+    input.value = "";
+    boton.disabled = true;
+
+    const cargando = document.createElement("div");
+    cargando.className = "mensaje bot";
+    cargando.textContent = "Consultando el DOF...";
+    chat.appendChild(cargando);
+
+    chat.scrollTop = chat.scrollHeight;
+
+    try {
+
+        const response = await fetch("/preguntar", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                pregunta: pregunta
+            })
+        });
+
+        const datos = await response.json();
+
+        cargando.textContent = datos.respuesta;
+
+        if (datos.resultados) {
+
+            datos.resultados.forEach(nota => {
+
+                const resultado = document.createElement("div");
+                resultado.className = "resultado";
+
+                const titulo = document.createElement("strong");
+                titulo.textContent = nota.titulo;
+
+                const fecha = document.createElement("p");
+                fecha.textContent = "Fecha: " + nota.fecha;
+
+                const organismo = document.createElement("p");
+                organismo.textContent =
+                    "Organismo: " + (nota.organismo || "No especificado");
+
+                resultado.appendChild(titulo);
+                resultado.appendChild(fecha);
+                resultado.appendChild(organismo);
+
+                cargando.appendChild(resultado);
+            });
+        }
+
+        if (datos.buscador_oficial) {
+            const enlace = document.createElement("a");
+            enlace.href = datos.buscador_oficial;
+            enlace.target = "_blank";
+            enlace.rel = "noopener noreferrer";
+            enlace.textContent = "Consultar buscador oficial del DOF";
+            cargando.appendChild(enlace);
+        }
+
+    } catch (error) {
+
+        cargando.textContent =
+            "No pude conectar con el servidor. Intenta nuevamente.";
+
+        console.error(error);
+
+    } finally {
+        boton.disabled = false;
+        chat.scrollTop = chat.scrollHeight;
+    }
+}
+
+document.getElementById("pregunta")
+    .addEventListener("keydown", function(event) {
+        if (event.key === "Enter") {
+            enviarPregunta();
+        }
+    });
+
+Despacho-IA-JBG/
+├── app.py
+├── dof_jbg.py
+├── requirements.txt
+├── .env
+└── templates/
+    └── index.html
+
+flask
+groq
+python-dotenv
+requests
+beautifulsoup4
+
+GROQ_API_KEY=gsk_tu_clave_aqui
+
+# DOF FINAL - Despacho IA JBG - Actualización MANUAL
+import requests
+from bs4 import BeautifulSoup
+import json
+import os
+from datetime import datetime
+
+ARCHIVO_DOF = "dof_actualizado.json"
+
+def obtener_dof():
+    print(f"[{datetime.now()}] Actualizando DOF...")
+    publicaciones = []
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Despacho-JBG'}
+        respuesta = requests.get("https://www.dof.gob.mx/", headers=headers, timeout=20)
+        if respuesta.status_code == 200:
+            soup = BeautifulSoup(respuesta.text, 'html.parser')
+            for link in soup.find_all('a', href=True)[:40]:
+                texto = link.get_text(strip=True)
+                href = link['href']
+                if len(texto) > 20 and ('DECRETO' in texto.upper() or 'ACUERDO' in texto.upper() or 'LEY' in texto.upper() or 'REFORMA' in texto.upper() or 'AVISO' in texto.upper() or 'CONVOCATORIA' in texto.upper()):
+                    if not href.startswith('http'):
+                        href = "https://www.dof.gob.mx/" + href
+                    publicaciones.append({
+                        "titulo": texto,
+                        "link": href,
+                        "fecha": datetime.now().strftime("%d/%m/%Y")
+                    })
+        if len(publicaciones) == 0:
+            publicaciones = [{
+                "titulo": "Consulta el Diario Oficial de la Federación completo en dof.gob.mx",
+                "link": "https://www.dof.gob.mx/",
+                "fecha": datetime.now().strftime("%d/%m/%Y")
+            }]
+        datos = {
+            "ultima_actualizacion": datetime.now().strftime("%d/%m/%Y %H:%M"),
+            "total": len(publicaciones),
+            "publicaciones": publicaciones[:20]
+        }
+        with open(ARCHIVO_DOF, 'w', encoding='utf-8') as f:
+            json.dump(datos, f, ensure_ascii=False, indent=2)
+        print(f"✅ DOF actualizado: {len(publicaciones)} publicaciones")
+        return datos
+    except Exception as e:
+        print(f"❌ Error DOF: {e}")
+        if os.path.exists(ARCHIVO_DOF):
+            with open(ARCHIVO_DOF, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        return {"ultima_actualizacion": "Sin datos", "publicaciones": []}
+
+
+
+# APP.PY FINAL - Despacho IA JBG
+# Contesta preguntas + DOF
+from flask import Flask, render_template, request, jsonify
+from groq import Groq
+import os
+import json
+from dotenv import load_dotenv
+from dof_jbg import obtener_dof
+
+load_dotenv()
+
+app = Flask(__name__)
+client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+
+historial = []
+
+# PROMPT QUE HACE QUE CONTESTE DE TODO, PERO ENFOCADO A DERECHO
+SYSTEM_PROMPT = """
+Eres Despacho IA JBG, el asistente virtual oficial del Despacho JBG en México.
+Tu misión principal es ayudar en temas de derecho, trámites, contratos, demandas, escritos, citas y dudas legales.
+PERO también puedes contestar casi cualquier pregunta: cultura general, matemáticas, tecnología, historia, cocina, deportes, tareas, etc. Nunca digas "solo sé de derecho".
+
+REGLAS:
+1. Si la pregunta es de derecho: responde como abogado profesional, claro, formal pero fácil de entender, en español de México. Si es un tema delicado, explica y recomienda consultar a un abogado del despacho.
+2. Si la pregunta es de otro tema: contéstala igual de bien, completa y amigable.
+3. Nunca inventes leyes o artículos. Si no estás seguro, dilo.
+4. Si te piden un documento, contrato o escrito, genera un borrador bien estructurado y listo para usar.
+5. Siempre responde en español, con buena ortografía.
+6. Eres amable, útil y directo, como un asistente de un despacho moderno.
+"""
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/chat', methods=['POST'])
+def chat():
+    data = request.json
+    user_msg = data.get('message', '')
+
+    historial.append({"role": "user", "content": user_msg})
+    mensajes = [{"role": "system", "content": SYSTEM_PROMPT}] + historial[-20:]
+
+    try:
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=mensajes,
+            temperature=0.7,
+            max_tokens=1200
+        )
+        respuesta = completion.choices[0].message.content
+    except Exception as e:
+        respuesta = f"Hubo un error con la API: {e}. Verifica tu API KEY en el archivo .env"
+
+    historial.append({"role": "assistant", "content": respuesta})
+    return jsonify({"respuesta": respuesta})
+
+@app.route('/limpiar', methods=['POST'])
+def limpiar():
+    historial.clear()
+    return jsonify({"ok": True})
+
+# ---------- DOF ----------
+@app.route('/dof')
+def ver_dof():
+    try:
+        with open("dof_actualizado.json", 'r', encoding='utf-8') as f:
+            datos = json.load(f)
+    except:
+        datos = {"ultima_actualizacion": "Sin datos", "publicaciones": []}
+    return jsonify(datos)
+
+@app.route('/dof-actualizar', methods=['POST'])
+def actualizar_dof_manual():
+    datos = obtener_dof()
+    return jsonify({"mensaje": "DOF actualizado", "total": datos.get("total", 0)})
+
+if __name__ == '__main__':
+    app.run(debug=True, port=5000)
+
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Despacho IA JBG</title>
+<style>
+    * { margin:0; padding:0; box-sizing:border-box; font-family:'Segoe UI', sans-serif; }
+  body { background:#0f1115; color:white; display:flex; flex-direction:column; height:100vh; }
+  header { background:#111827; padding:18px; text-align:center; border-bottom:2px solid #c9a227; }
+  header h1 { font-size:22px; letter-spacing:2px; }
+  header h1 span { color:#c9a227; }
+  header p { font-size:12px; color:#9ca3af; margin-top:4px; }
+  #chat { flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:12px; max-width:800px; width:100%; margin:0 auto; }
+  .msg { max-width:80%; padding:12px 16px; border-radius:18px; line-height:1.5; font-size:15px; white-space:pre-wrap; }
+  .user { background:#c9a227; color:black; align-self:flex-end; border-bottom-right-radius:4px; }
+  .bot { background:#1f2937; align-self:flex-start; border-bottom-left-radius:4px; }
+  #form { display:flex; gap:10px; padding:15px; max-width:800px; width:100%; margin:0 auto; }
+  input { flex:1; padding:14px; border-radius:25px; border:none; outline:none; background:#1f2937; color:white; font-size:15px; }
+  button { padding:14px 22px; border-radius:25px; border:none; background:#c9a227; font-weight:bold; cursor:pointer; }
+  .dof-box { background:#111827; border-bottom:2px solid #c9a227; padding:15px; max-width:800px; margin:0 auto; width:100%; }
+  .dof-link { color:white; text-decoration:none; background:#1f2937; padding:10px 12px; border-radius:10px; font-size:14px; display:block; }
+</style>
+</head>
+<body>
+<header>
+  <h1>DESPACHO <span>IA JBG</span></h1>
+  <p>Asistente Inteligente • Pregúntame lo que quieras • Atención 24/7</p>
+</header>
+
+<!-- SECCIÓN DOF -->
+<div class="dof-box">
+  <h3 style="color:#c9a227; font-size:16px;">📰 DIARIO OFICIAL DE LA FEDERACIÓN</h3>
+  <p id="dof-fecha" style="font-size:12px; color:#9ca3af; margin:5px 0;">Cargando...</p>
+  <div id="dof-lista" style="display:flex; flex-direction:column; gap:8px; margin-top:10px;"><p>Cargando publicaciones...</p></div>
+  <button onclick="actualizarDOF()" style="margin-top:10px; padding:8px 15px; font-size:12px; background:#c9a227; color:black; font-weight:bold; border:none; border-radius:20px; cursor:pointer;">🔄 Actualizar DOF ahora</button>
+</div>
+
+<div id="chat">
+  <div class="msg bot">Hola, soy Despacho IA JBG. Pregúntame lo que quieras, me enfoco en derecho pero te puedo ayudar en casi todo: contratos, tareas, dudas, ideas, trámites y más. ¿En qué te ayudo hoy?</div>
+</div>
+
+<div style="text-align:center;"><button onclick="limpiarChat()" style="background:transparent; color:#9ca3af; font-size:12px; cursor:pointer; border:none; margin-bottom:5px;">Borrar conversación</button></div>
+
+<form id="form">
+  <input id="input" placeholder="Escribe tu pregunta..." autocomplete="off" required>
+  <button type="submit">Enviar</button>
+</form>
+
+<script>
+  const form = document.getElementById('form');
+  const input = document.getElementById('input');
+  const chat = document.getElementById('chat');
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const texto = input.value;
+    input.value = '';
+    chat.innerHTML += `<div class="msg user">${texto}</div>`;
+    chat.scrollTop = chat.scrollHeight;
+    const res = await fetch('/chat', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({message: texto}) });
+    const data = await res.json();
+    chat.innerHTML += `<div class="msg bot">${data.respuesta}</div>`;
+    chat.scrollTop = chat.scrollHeight;
+  });
+
+  async function limpiarChat(){
+    await fetch('/limpiar', {method:'POST'});
+    chat.innerHTML = `<div class="msg bot">Conversación borrada. ¿En qué te ayudo ahora?</div>`;
+  }
+
+  async function cargarDOF(){
+    try{
+      const res = await fetch('/dof');
+      const data = await res.json();
+      document.getElementById('dof-fecha').innerText = "Última actualización: " + data.ultima_actualizacion + " • Actualización manual";
+      const lista = document.getElementById('dof-lista');
+      lista.innerHTML = "";
+      if(data.publicaciones.length === 0){ lista.innerHTML = "<p>Sin publicaciones por el momento.</p>"; }
+      else {
+        data.publicaciones.forEach(pub => {
+          lista.innerHTML += `<a href="${pub.link}" target="_blank" class="dof-link">📄 ${pub.titulo} <span style="color:#c9a227; font-size:11px;"> - ${pub.fecha}</span></a>`;
+        });
+      }
+    } catch(e){ document.getElementById('dof-lista').innerHTML = "<p>Error al cargar el DOF.</p>"; }
+  }
+  async function actualizarDOF(){
+    document.getElementById('dof-lista').innerHTML = "<p>Actualizando...</p>";
+    await fetch('/dof-actualizar', {method:'POST'});
+    cargarDOF();
+  }
+  cargarDOF();
+
