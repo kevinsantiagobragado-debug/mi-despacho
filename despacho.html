@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Consulta información publicada en el Diario Oficial de la Federación.">
+    <meta name="color-scheme" content="light">
+    <title>Asistente Legal DOF</title>
+    <style>
+        :root {
+            --beige: #f5f5dc;
+            --tinta: #1a1a1a;
+            --gris-oscuro: #333333;
+            --gris-claro: #e0e0d0;
+            --blanco: #ffffff;
+            --borde: #c9c9b8;
+            --alerta-texto: #5c4300;
+            --alerta-fondo: #fff6d6;
+            --alerta-borde: #c9a227;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            height: 100vh;
+            height: 100dvh;
+            background-color: var(--beige);
+            color: var(--tinta);
+            font-family: Arial, "Helvetica Neue", Helvetica, sans-serif;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+        }
+
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0 0 0 0);
+            white-space: nowrap;
+            border: 0;
+        }
+
+        .skip {
+            position: absolute;
+            left: -9999px;
+            top: 8px;
+            z-index: 10;
+            background: var(--blanco);
+            color: var(--tinta);
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 2px solid var(--gris-oscuro);
+        }
+        .skip:focus { left: 12px; }
+
+        header {
+            flex: none;
+            background-color: var(--gris-oscuro);
+            color: var(--blanco);
+            padding: 16px 20px;
+            text-align: center;
+        }
+        header h1 {
+            margin: 0;
+            font-size: 22px;
+            line-height: 1.25;
+        }
+        header p {
+            margin: 4px 0 0;
+            font-size: 13px;
+            color: #d9d9cc;
+        }
+
+        .banner {
+            flex: none;
+            margin: 0;
+            padding: 8px 16px;
+            background: var(--alerta-fondo);
+            border-bottom: 1px solid var(--alerta-borde);
+            color: var(--alerta-texto);
+            font-size: 13px;
+            text-align: center;
+        }
+
+        main {
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+            padding: 20px;
+            border-bottom: 2px solid var(--gris-oscuro);
+        }
+
+        .contenedor {
+            width: 100%;
+            max-width: 880px;
+            margin: 0 auto;
+        }
+
+        .ayuda {
+            margin: 0;
+            padding: 16px;
+            background: var(--blanco);
+            border: 1px dashed var(--borde);
+            border-radius: 8px;
+            font-size: 14.5px;
+            line-height: 1.5;
+            color: #3d3d33;
+        }
+
+        .conversacion {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+            display: grid;
+            gap: 16px;
+        }
+
+        .turno {
+            background: var(--blanco);
+            border: 1px solid var(--borde);
+            border-radius: 8px;
+            padding: 14px 16px;
+            box-shadow: 3px 0 0 var(--gris-oscuro) inset;
+        }
+
+        .turno-pregunta {
+            margin: 0 0 12px;
+            padding-bottom: 10px;
+            border-bottom: 1px dashed #d6d6c2;
+            font-weight: 700;
+            font-size: 15px;
+            line-height: 1.4;
+            overflow-wrap: anywhere;
+        }
+
+        .resultados {
+            margin: 0;
+            padding-left: 22px;
+            display: grid;
+            gap: 14px;
+        }
+        .resultados h2 {
+            font-size: 15.5px;
+            line-height: 1.35;
+            margin: 0 0 4px;
+        }
+        .resultados h2 a {
+            color: var(--tinta);
+            text-decoration: underline;
+            text-underline-offset: 2px;
+        }
+        .resultados h2 a:hover { background: #f0f0dd; }
+        .resultados p {
+            margin: 0 0 6px;
+            font-size: 14.5px;
+            line-height: 1.5;
+        }
+        .resultados .fuente {
+            margin: 0;
+            font-size: 12.5px;
+            color: #4a4a44;
+        }
+
+        .estado {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 0;
+            font-size: 14px;
+            line-height: 1.5;
+            color: #4a4a44;
+        }
+        .estado.error {
+            display: block;
+            padding: 10px 12px;
+            border: 1px solid #e3b4b4;
+            border-radius: 6px;
+            background: #fdecec;
+            color: #a11a1a;
+        }
+        .estado.vacio {
+            display: block;
+            padding: 12px;
+            border: 1px dashed var(--borde);
+            border-radius: 6px;
+            background: #f7f7ee;
+        }
+
+        .spinner {
+            flex: none;
+            width: 14px;
+            height: 14px;
+            border: 2px solid #b9b9a8;
+            border-top-color: var(--gris-oscuro);
+            border-radius: 50%;
+            animation: giro 0.8s linear infinite;
+        }
+        @keyframes giro { to { transform: rotate(360deg); } }
+
+        footer {
+            flex: none;
+            background-color: var(--gris-claro);
+            padding: 14px 20px 20px;
+        }
+
+        .aviso-legal {
+            max-width: 880px;
+            margin: 0 auto 10px;
+            font-size: 12px;
+            line-height: 1.45;
+            color: #3d3d33;
+        }
+
+        .barra {
+            max-width: 880px;
+            margin: 0 auto;
+            display: flex;
+            gap: 10px;
+        }
+
+        input[type="text"] {
+            flex: 1;
+            min-width: 0;
+            padding: 12px;
+            font-family: inherit;
+            font-size: 16px;
+            color: var(--tinta);
+            background: var(--blanco);
+            border: 1px solid var(--gris-oscuro);
+            border-radius: 6px;
+        }
+
+        button {
+            flex: none;
+            padding: 12px 22px;
+            font-family: inherit;
+            font-size: 15px;
+            color: var(--blanco);
+            background-color: var(--gris-oscuro);
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+        button:hover:not(:disabled) { background-color: #555555; }
+        button:disabled { background-color: #6b6b63; cursor: progress; }
+        input:disabled { background: #f2f2ea; color: #6b6b63; }
+
+        input:focus-visible,
+        button:focus-visible,
+        .skip:focus-visible,
+        a:focus-visible {
+            outline: 3px solid var(--tinta);
+            outline-offset: 2px;
+        }
+        footer input:focus-visible { outline-color: #ffffff; outline-offset: 0; }
+        footer button:focus-visible { outline-color: #ffffff; }
+
+        @media (prefers-reduced-motion: reduce) {
+            .spinner { animation-duration: 2.4s; }
+        }
+
+        @media (max-width: 600px) {
+            header h1 { font-size: 19px; }
+            main { padding: 14px; }
+            footer { padding: 12px 14px 16px; }
+            .barra { flex-direction: column; }
+            button { width: 100%; }
+        }
+    </style>
+</head>
+<body>
+    <a class="skip" href="#contenido">Ir a los resultados</a>
+
+    <header>
+        <h1>Asistente Legal Inteligente</h1>
+        <p>Consulta información publicada en el Diario Oficial de la Federación</p>
+    </header>
+
+    <p id="banner-demo" class="banner" hidden>
+        Modo demostración: no hay endpoint configurado, así que las respuestas son ejemplos locales.
+    </p>
+
+    <main id="contenido" tabindex="-1">
+        <div class="contenedor">
+            <p id="ayuda" class="ayuda">
+                Escribe una consulta sobre una ley, artículo, decreto o tema publicado en el DOF.
+                Los resultados incluirán la referencia y el enlace a la publicación oficial.
+            </p>
+
+            <ol id="conversacion" class="conversacion" role="log" aria-label="Conversación"></ol>
+        </div>
+    </main>
+
+    <footer>
+        <p id="aviso-legal" class="aviso-legal">
+            Este asistente ofrece información general a partir de publicaciones del DOF y no
+            constituye asesoría jurídica. Verifica siempre el texto vigente en el Diario Oficial
+            de la Federación.
+        </p>
+
+        <form id="form-consulta" class="barra" autocomplete="off" novalidate>
+            <label class="sr-only" for="consulta">Escribe tu consulta legal</label>
+            <input
+                id="consulta"
+                name="consulta"
+                type="text"
+                placeholder="Escribe tu consulta legal aquí…"
+                maxlength="500"
+                required
+                enterkeyhint="send"
+                aria-describedby="aviso-legal">
+            <button id="enviar" type="submit">Enviar</button>
+        </form>
+    </footer>
+
+    <script>
+        "use strict";
+
+        /*
+         * Contrato del backend: POST ENDPOINT con { consulta: string }
+         * debe responder 200 con { resultados: [{ titulo, resumen?, fuente?, url? }] }.
+         * Con ENDPOINT vacío se usa la demostración local.
+         */
+        const ENDPOINT = "";
+        const TIEMPO_MAXIMO_MS = 20000;
+
+        const form = document.getElementById("form-consulta");
+        const input = document.getElementById("consulta");
+        const boton = document.getElementById("enviar");
+        const conversacion = document.getElementById("conversacion");
+        const banner = document.getElementById("banner-demo");
+
+        banner.hidden = Boolean(ENDPOINT);
+
+        function urlSegura(valor) {
+            try {
+                const url = new URL(valor);
+                return url.protocol === "https:" || url.protocol === "http:" ? url.href : null;
+            } catch {
+                return null;
+            }
+        }
+
+        function crearEstado(texto, tipo) {
+            const parrafo = document.createElement("p");
+            parrafo.className = tipo ? "estado " + tipo : "estado";
+
+            if (tipo === "cargando") {
+                const spinner = document.createElement("span");
+                spinner.className = "spinner";
+                spinner.setAttribute("aria-hidden", "true");
+                parrafo.append(spinner);
+            }
+
+            parrafo.append(document.createTextNode(texto));
+            return parrafo;
+        }
+
+        function crearTurno(texto) {
+            document.getElementById("ayuda")?.remove();
+
+            const turno = document.createElement("li");
+            turno.className = "turno";
+
+            const pregunta = document.createElement("p");
+            pregunta.className = "turno-pregunta";
+            const quien = document.createElement("span");
+            quien.className = "sr-only";
+            quien.textContent = "Tu consulta: ";
+            pregunta.append(quien, document.createTextNode(texto));
+
+            const respuesta = document.createElement("div");
+            respuesta.className = "turno-respuesta";
+
+            turno.append(pregunta, respuesta);
+            conversacion.append(turno);
+            turno.scrollIntoView({ block: "nearest" });
+
+            return respuesta;
+        }
+
+        function pintarResultado(resultado, indice) {
+            const item = document.createElement("li");
+
+            const titulo = document.createElement("h2");
+            const enlace = resultado.url ? urlSegura(resultado.url) : null;
+            const texto = resultado.titulo || "Resultado " + (indice + 1);
+
+            if (enlace) {
+                const a = document.createElement("a");
+                a.href = enlace;
+                a.target = "_blank";
+                a.rel = "noopener noreferrer";
+                a.textContent = texto;
+                const aviso = document.createElement("span");
+                aviso.className = "sr-only";
+                aviso.textContent = " (abre en una pestaña nueva)";
+                titulo.append(a, aviso);
+            } else {
+                titulo.textContent = texto;
+            }
+            item.append(titulo);
+
+            if (resultado.resumen) {
+                const resumen = document.createElement("p");
+                resumen.textContent = resultado.resumen;
+                item.append(resumen);
+            }
+
+            const fuente = document.createElement("p");
+            fuente.className = "fuente";
+            fuente.textContent = "Fuente: " + (resultado.fuente || "sin metadatos");
+            item.append(fuente);
+
+            return item;
+        }
+
+        function pintarResultados(contenedor, resultados) {
+            contenedor.replaceChildren();
+
+            if (resultados.length === 0) {
+                contenedor.append(crearEstado(
+                    "No se encontraron publicaciones para esta consulta. Prueba con otras palabras clave, como el nombre de la ley o el tema.",
+                    "vacio"
+                ));
+                return;
+            }
+
+            const lista = document.createElement("ol");
+            lista.className = "resultados";
+            resultados.forEach(function (resultado, indice) {
+                lista.append(pintarResultado(resultado, indice));
+            });
+            contenedor.append(lista);
+        }
+
+        async function pedirAlBackend(texto, signal) {
+            const respuesta = await fetch(ENDPOINT, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ consulta: texto }),
+                signal: signal
+            });
+
+            if (!respuesta.ok) {
+                throw new Error("HTTP " + respuesta.status);
+            }
+
+            const datos = await respuesta.json();
+            if (!datos || !Array.isArray(datos.resultados)) {
+                throw new Error("Respuesta inesperada del servidor");
+            }
+            return datos.resultados;
+        }
+
+        async function respuestaDemo(texto, signal) {
+            await new Promise(function (resolver, rechazar) {
+                const temporizador = setTimeout(resolver, 700);
+                signal.addEventListener("abort", function () {
+                    clearTimeout(temporizador);
+                    rechazar(new DOMException("Consulta abortada", "AbortError"));
+                }, { once: true });
+            });
+
+            return [
+                {
+                    titulo: "«" + texto + "»",
+                    resumen: "Este es un resultado de ejemplo: aún no hay un endpoint configurado, por lo que no se consultó el DOF. Al conectar el backend aquí aparecerían el extracto y la referencia de la publicación oficial.",
+                    fuente: "Modo demostración · sin fuente oficial",
+                    url: null
+                },
+                {
+                    titulo: "Segundo resultado de ejemplo",
+                    resumen: "Los resultados reales deben incluir número de edición, sección y fecha de publicación para que puedan citarse correctamente.",
+                    fuente: "Modo demostración · sin fuente oficial",
+                    url: null
+                }
+            ];
+        }
+
+        async function consultar(texto) {
+            const respuesta = crearTurno(texto);
+            respuesta.append(crearEstado("Consultando el Diario Oficial de la Federación…", "cargando"));
+
+            input.disabled = true;
+            boton.disabled = true;
+            boton.setAttribute("aria-busy", "true");
+
+            const control = new AbortController();
+            const temporizador = setTimeout(function () { control.abort(); }, TIEMPO_MAXIMO_MS);
+
+            try {
+                const resultados = ENDPOINT
+                    ? await pedirAlBackend(texto, control.signal)
+                    : await respuestaDemo(texto, control.signal);
+                pintarResultados(respuesta, resultados);
+            } catch (error) {
+                respuesta.replaceChildren();
+                const mensaje = error.name === "AbortError"
+                    ? "La consulta tardó más de " + (TIEMPO_MAXIMO_MS / 1000) + " segundos. Revisa tu conexión e inténtalo de nuevo."
+                    : "No se pudo consultar el DOF en este momento. Inténtalo de nuevo en unos minutos.";
+                respuesta.append(crearEstado(mensaje, "error"));
+            } finally {
+                clearTimeout(temporizador);
+                input.disabled = false;
+                boton.disabled = false;
+                boton.removeAttribute("aria-busy");
+                input.focus();
+            }
+        }
+
+        form.addEventListener("submit", function (evento) {
+            evento.preventDefault();
+
+            const texto = input.value.trim();
+            if (!texto) {
+                input.focus();
+                return;
+            }
+
+            input.value = "";
+            consultar(texto);
+        });
+    </script>
+</body>
+</html>
